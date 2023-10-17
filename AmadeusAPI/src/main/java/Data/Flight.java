@@ -1,5 +1,7 @@
 package Data;
 
+import javax.persistence.Table;
+
 public class Flight {
 
     private String type;

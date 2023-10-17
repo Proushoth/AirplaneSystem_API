@@ -1,27 +1,23 @@
 package Service;
-import Debug.LoggingRequestInterceptor;
-
 
 import Data.Flight;
 import Data.FlightRepository;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import java.util.List;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+
 import java.util.ArrayList;
 import java.util.Collections;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import org.springframework.web.util.UriComponentsBuilder;
-
+import java.util.List;
 
 @Service
 public class AmadeusService {
@@ -34,41 +30,54 @@ public class AmadeusService {
     @Value("${amadeus.api.access-token}")
     private String accessToken;
 
-        public List<Flight> searchFlights(String type, String origin, String destination, String departureDate, String returnDate, double price) {
-            // Log the incoming request details
-            System.out.println("Received request: type=" + type + ", origin=" + origin + ", destination=" + destination +
-                    ", departureDate=" + departureDate + ", returnDate=" + returnDate + ", price=" + price);
+    public List<Flight> searchFlights(String type, String origin, String destination, String departureDate,
+                                      String returnDate, double price) {
+        // Validate request parameters
+        if (StringUtils.isEmpty(type) || StringUtils.isEmpty(origin) || StringUtils.isEmpty(destination)
+                || StringUtils.isEmpty(departureDate) || StringUtils.isEmpty(returnDate)) {
+            throw new IllegalArgumentException("Missing required request parameters");
+        }
 
-            // Create RestTemplate and set the LoggingRequestInterceptor
-            RestTemplate restTemplate = new RestTemplate();
-            restTemplate.setInterceptors(Collections.singletonList(new Debug.LoggingRequestInterceptor()));
+        // Log the incoming request details
+        System.out.println("Received request: type=" + type + ", origin=" + origin + ", destination=" + destination
+                + ", departureDate=" + departureDate + ", returnDate=" + returnDate + ", price=" + price);
 
-            // Build the URL using UriComponentsBuilder
-            String url = UriComponentsBuilder.fromUriString(AMADEUS_API_URL)
-                    .queryParam("type", type)
-                    .queryParam("originLocationCode", origin)
-                    .queryParam("destinationLocationCode", destination)
-                    .queryParam("departureDate", departureDate)
-                    .queryParam("returnDate", returnDate)
-                    .queryParam("price", price)
-                    .build().toUriString();
+        // Create RestTemplate and set the LoggingRequestInterceptor
+        RestTemplate restTemplate = new RestTemplate();
+        restTemplate.setInterceptors(Collections.singletonList(new Debug.LoggingRequestInterceptor()));
 
-            // Set headers
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", "Bearer " + accessToken);
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            HttpEntity<String> entity = new HttpEntity<>(headers);
+        // Build the URL using UriComponentsBuilder
+        String url = UriComponentsBuilder.fromUriString(AMADEUS_API_URL)
+                .queryParam("type", type)
+                .queryParam("originLocationCode", origin)
+                .queryParam("destinationLocationCode", destination)
+                .queryParam("departureDate", departureDate)
+                .queryParam("returnDate", returnDate)
+                .queryParam("price", price)
+                .build().toUriString();
 
-            try {
-                // Make the HTTP request
-                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+        // Set headers
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        HttpEntity<String> entity = new HttpEntity<>(headers);
 
-                // Parse the JSON response
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode jsonNode = mapper.readTree(response.getBody());
+        try {
+            // Make the HTTP request
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
 
-                // Extract flight data from JSON response and create Flight objects
-                List<Flight> flights = new ArrayList<>();
+            // Check for API errors
+            if (response.getStatusCode().is4xxClientError()) {
+                throw new RestClientException("API returned a client error: " + response.getStatusCode());
+            }
+
+            // Parse the JSON response
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode jsonNode = mapper.readTree(response.getBody());
+
+            // Extract flight data from JSON response and create Flight objects
+            List<Flight> flights = new ArrayList<>();
+            if (jsonNode.has("data")) {
                 for (JsonNode flightNode : jsonNode.get("data")) {
                     Flight flight = new Flight();
                     flight.setType(flightNode.get("type").asText());
@@ -85,13 +94,15 @@ public class AmadeusService {
                     flightRepository.saveFlightData(flight.getType(), flight.getOrigin(), flight.getDestination(),
                             flight.getDepartureDate(), flight.getReturnDate(), flight.getPrice());
                 }
-
-                return flights;
-            } catch (RestClientException | JsonProcessingException e) {
-                // Handle errors
-                e.printStackTrace();
             }
 
-            return new ArrayList<>();
+            // Return the list of flights
+            return flights;
+
+        } catch (JsonProcessingException e) {
+            // Handle JSON processing exception
+            e.printStackTrace(); // Replace with appropriate error handling
+            return Collections.emptyList();
         }
     }
+}

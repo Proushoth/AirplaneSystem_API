@@ -26,6 +26,11 @@ public class AmadeusController {
             @RequestParam("returnDate") String returnDate,
             @RequestParam("price") double price) {
 
+        // Log incoming parameters
+        System.out.println("Received request: type=" + type + ", origin=" + origin +
+                ", destination=" + destination + ", departureDate=" + departureDate +
+                ", returnDate=" + returnDate + ", price=" + price);
+
         List<Flight> flights = amadeusService.searchFlights(type, origin, destination, departureDate, returnDate, price);
         return new ResponseEntity<>(flights, HttpStatus.OK);
     }
